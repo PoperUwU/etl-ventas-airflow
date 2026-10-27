@@ -3,10 +3,11 @@
 Se dispara a mano con el parámetro `fecha` (AAAA-MM-DD). Cada corrida debe
 reemplazar solo los datos de esa fecha, así que repetirla no puede duplicar filas.
 
-El DAG ya importa sin errores, pero cada tarea levanta NotImplementedError
-hasta que la completes. El encadenamiento del final ya está armado.
+Tareas encadenadas: extraer -> transformar -> validar_calidad -> cargar ->
+actualizar_resumen. El control de calidad corta la corrida antes de tocar la base.
 """
 
+import logging
 import os
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -18,6 +19,8 @@ from ventas.reglas import leer_csv, revisar_calidad, separar_ventas
 
 CARPETA_ENTRADA = Path(os.environ.get("VENTAS_CARPETA_ENTRADA", "/opt/airflow/data/entrada"))
 CONEXION = "postgres_datapath"
+
+log = logging.getLogger(__name__)
 
 CREAR_TABLAS = """
 CREATE TABLE IF NOT EXISTS ventas_limpias (
@@ -67,39 +70,103 @@ def etl_ventas_diarias():
 
     @task
     def extraer():
-        # 1. Toma la fecha de get_current_context()["params"]["fecha"]
-        # 2. Arma la ruta CARPETA_ENTRADA / f"ventas_{fecha}.csv" y falla con un
-        #    mensaje claro si el archivo no existe
-        # 3. Lee las filas con leer_csv y devuelve {"fecha": ..., "filas": [...]}
-        raise NotImplementedError("Completa extraer")
+        fecha = get_current_context()["params"]["fecha"]
+        date.fromisoformat(fecha)  # falla si no es AAAA-MM-DD
+        ruta = CARPETA_ENTRADA / f"ventas_{fecha}.csv"
+        if not ruta.is_file():
+            raise FileNotFoundError(f"No existe el archivo de ventas del {fecha}: {ruta}")
+        filas = leer_csv(ruta)
+        log.info("Archivo %s: %s filas leídas", ruta.name, len(filas))
+        return {"fecha": fecha, "filas": filas}
 
     @task
     def transformar(datos):
-        # Usa separar_ventas y devuelve un dict con:
-        # fecha, leidas (cuántas filas trajo el archivo), limpias y rechazadas
-        raise NotImplementedError("Completa transformar")
+        limpias, rechazadas = separar_ventas(datos["filas"], datos["fecha"])
+        log.info("Válidas: %s | Rechazadas: %s", len(limpias), len(rechazadas))
+        return {
+            "fecha": datos["fecha"],
+            "leidas": len(datos["filas"]),
+            "limpias": limpias,
+            "rechazadas": rechazadas,
+        }
 
-    @task
+    # Sin reintentos: si el archivo viene mal, volver a leerlo da el mismo resultado
+    @task(retries=0)
     def validar_calidad(resultado):
-        # Llama a revisar_calidad. Si pasa, devuelve el mismo `resultado` para
-        # que siga a la carga. ¿Tiene sentido que esta tarea reintente?
-        raise NotImplementedError("Completa validar_calidad")
+        tasa = revisar_calidad(resultado["leidas"], len(resultado["rechazadas"]))
+        log.info("Tasa de rechazo: %.1f %%", tasa * 100)
+        return resultado
 
     @task
     def cargar(resultado):
-        # Todo en UNA transacción con PostgresHook(postgres_conn_id=CONEXION):
-        #   - CREAR_TABLAS
-        #   - borrar lo que ya exista de esa fecha en ventas_limpias y ventas_rechazadas
-        #   - insertar con parámetros (%s), nunca armando el SQL con f-strings
-        #   - comprobar que en la tabla quedó la misma cantidad que transformaste
-        # Devuelve {"fecha": ..., "cargadas": n, "rechazadas": m}
-        raise NotImplementedError("Completa cargar")
+        fecha = date.fromisoformat(resultado["fecha"])
+        limpias = resultado["limpias"]
+        rechazadas = resultado["rechazadas"]
+
+        filas_limpias = [
+            (v["id_venta"], fecha, v["region"], v["producto"], v["cantidad"],
+             v["precio_unitario"], v["total"])
+            for v in limpias
+        ]
+        filas_rechazadas = [
+            (fecha, r["linea"], r["id_venta"], r["motivo"], r["fila_original"])
+            for r in rechazadas
+        ]
+
+        conexion = PostgresHook(postgres_conn_id=CONEXION).get_conn()
+        try:
+            with conexion.cursor() as cursor:
+                cursor.execute(CREAR_TABLAS)
+                cursor.execute("DELETE FROM ventas_limpias WHERE fecha = %s", (fecha,))
+                cursor.execute("DELETE FROM ventas_rechazadas WHERE fecha_archivo = %s", (fecha,))
+                cursor.executemany(
+                    "INSERT INTO ventas_limpias "
+                    "(id_venta, fecha, region, producto, cantidad, precio_unitario, total) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                    filas_limpias,
+                )
+                cursor.executemany(
+                    "INSERT INTO ventas_rechazadas "
+                    "(fecha_archivo, linea, id_venta, motivo, fila_original) "
+                    "VALUES (%s, %s, %s, %s, %s)",
+                    filas_rechazadas,
+                )
+                cursor.execute("SELECT COUNT(*) FROM ventas_limpias WHERE fecha = %s", (fecha,))
+                en_tabla = cursor.fetchone()[0]
+                if en_tabla != len(limpias):
+                    raise ValueError(
+                        f"En la tabla quedaron {en_tabla} ventas y se esperaban {len(limpias)}"
+                    )
+            conexion.commit()  # todo o nada: recién aquí cambia la base
+        except Exception:
+            conexion.rollback()
+            raise
+        finally:
+            conexion.close()
+
+        log.info("Cargadas %s ventas y %s rechazadas del %s", len(limpias), len(rechazadas), fecha)
+        return {"fecha": resultado["fecha"], "cargadas": len(limpias), "rechazadas": len(rechazadas)}
 
     @task
     def actualizar_resumen(carga):
-        # Recalcula resumen_ventas_diario SOLO para la fecha cargada, agrupando
-        # ventas_limpias por región: número de ventas, unidades y monto total
-        raise NotImplementedError("Completa actualizar_resumen")
+        fecha = date.fromisoformat(carga["fecha"])
+        conexion = PostgresHook(postgres_conn_id=CONEXION).get_conn()
+        try:
+            with conexion.cursor() as cursor:
+                cursor.execute("DELETE FROM resumen_ventas_diario WHERE fecha = %s", (fecha,))
+                cursor.execute(
+                    "INSERT INTO resumen_ventas_diario (fecha, region, num_ventas, unidades, monto_total) "
+                    "SELECT fecha, region, COUNT(*), SUM(cantidad), SUM(total) "
+                    "FROM ventas_limpias WHERE fecha = %s GROUP BY fecha, region",
+                    (fecha,),
+                )
+            conexion.commit()
+        except Exception:
+            conexion.rollback()
+            raise
+        finally:
+            conexion.close()
+        return {"fecha": carga["fecha"]}
 
     actualizar_resumen(cargar(validar_calidad(transformar(extraer()))))
 
