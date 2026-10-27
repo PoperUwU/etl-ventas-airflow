@@ -1,0 +1,37 @@
+   fecha    | ventas | ids_distintos |  monto   
+------------+--------+---------------+----------
+ 2026-10-05 |     41 |            41 | 61783.30
+ 2026-10-06 |     46 |            46 | 84035.00
+ 2026-10-07 |     39 |            39 | 65642.70
+(3 rows)
+
+ fecha_archivo |      motivo       | filas 
+---------------+-------------------+-------
+ 2026-10-05    | cantidad_invalida |     2
+ 2026-10-05    | id_duplicado      |     1
+ 2026-10-05    | precio_invalido   |     1
+ 2026-10-05    | region_invalida   |     1
+ 2026-10-06    | cantidad_invalida |     1
+ 2026-10-06    | fecha_distinta    |     1
+ 2026-10-06    | id_duplicado      |     1
+ 2026-10-06    | id_invalido       |     1
+ 2026-10-06    | precio_invalido   |     1
+ 2026-10-06    | producto_vacio    |     1
+ 2026-10-06    | region_invalida   |     1
+ 2026-10-07    | cantidad_invalida |     1
+ 2026-10-07    | region_invalida   |     1
+(13 rows)
+
+   fecha    | region | num_ventas | unidades | monto_total 
+------------+--------+------------+----------+-------------
+ 2026-10-05 | Centro |         12 |       90 |    20050.60
+ 2026-10-05 | Norte  |         18 |      154 |    22068.80
+ 2026-10-05 | Sur    |         11 |       60 |    19663.90
+ 2026-10-06 | Centro |         18 |      111 |    45943.20
+ 2026-10-06 | Norte  |         17 |      143 |    19386.80
+ 2026-10-06 | Sur    |         11 |       46 |    18705.00
+ 2026-10-07 | Centro |         16 |       72 |    28780.50
+ 2026-10-07 | Norte  |         17 |      121 |    24821.70
+ 2026-10-07 | Sur    |          6 |       33 |    12040.50
+(9 rows)
+
