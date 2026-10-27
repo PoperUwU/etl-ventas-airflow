@@ -1,8 +1,11 @@
 name: CI
 
-# TODO: que el workflow corra en cada push a main y en cada pull request hacia main
+# Corre en cada push a main y en cada pull request hacia main
 on:
-  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: read
@@ -17,14 +20,15 @@ jobs:
       - name: Descargar el código
         uses: actions/checkout@v7
 
-      # TODO: instala Python 3.12 con actions/setup-python@v7
-      #       (la misma versión de la imagen de Airflow que usamos en Docker)
+      # Misma versión de Python que la imagen de Airflow que usamos en Docker
+      - name: Instalar Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
 
-      # TODO: instala las dependencias de requirements-dev.txt usando
-      #       constraints-3.12.txt (revisa el comentario dentro de requirements-dev.txt)
+      # Las constraints fijan las mismas versiones de librerías que usa Docker
+      - name: Instalar dependencias
+        run: pip install -r requirements-dev.txt --constraint constraints-3.12.txt
 
-      # TODO: ejecuta pytest
-      - name: Pendiente
-        run: |
-          echo "Este workflow todavía no está terminado"
-          exit 1
+      - name: Ejecutar pruebas
+        run: pytest -v
