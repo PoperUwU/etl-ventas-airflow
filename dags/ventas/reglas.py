@@ -96,7 +96,7 @@ def validar_fila(fila, fecha):
     if not re.fullmatch(r"[0-9]+(\.[0-9]+)?", precio_texto):
         return None, "precio_invalido"
     precio = round(float(precio_texto), 2)
-    if precio < 0:
+    if precio <= 0:
         return None, "precio_invalido"
 
     registro = {
