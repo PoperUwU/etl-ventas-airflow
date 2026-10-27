@@ -1,0 +1,7 @@
+# Dependencias para correr las pruebas fuera de Docker (GitHub Actions o un venv local).
+# Instalar siempre con el archivo de constraints:
+#   pip install -r requirements-dev.txt --constraint constraints-3.12.txt
+apache-airflow==3.3.2
+apache-airflow-providers-postgres==7.0.2
+apache-airflow-providers-standard==1.19.0
+pytest==9.1.1

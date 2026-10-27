@@ -1,0 +1,30 @@
+name: CI
+
+# TODO: que el workflow corra en cada push a main y en cada pull request hacia main
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pruebas:
+    name: Pruebas del pipeline
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v7
+
+      # TODO: instala Python 3.12 con actions/setup-python@v7
+      #       (la misma versión de la imagen de Airflow que usamos en Docker)
+
+      # TODO: instala las dependencias de requirements-dev.txt usando
+      #       constraints-3.12.txt (revisa el comentario dentro de requirements-dev.txt)
+
+      # TODO: ejecuta pytest
+      - name: Pendiente
+        run: |
+          echo "Este workflow todavía no está terminado"
+          exit 1
